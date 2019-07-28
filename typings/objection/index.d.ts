@@ -28,6 +28,8 @@ declare namespace Objection {
   const snakeCaseMappers: SnakeCaseMappersFactory;
   const knexSnakeCaseMappers: KnexSnakeCaseMappersFactory;
 
+  type QBType = 'Array' | 'Single' | 'Number' | 'Page';
+
   export interface RawBuilder extends Aliasable {}
 
   export interface RawFunction extends RawInterface<RawBuilder> {}
@@ -61,8 +63,8 @@ declare namespace Objection {
     // than an identity function type. <M extends typeof Model> retains the
     // model subclass type in the return value, without requiring the user
     // to type the Mixin call.
-    <MC extends ModelClass<any>>(modelClass: MC, ...plugins: Plugin[]): MC;
-    <MC extends ModelClass<any>>(modelClass: MC, plugins: Plugin[]): MC;
+    <MC extends typeof Model>(modelClass: MC, ...plugins: Plugin[]): MC;
+    <MC extends typeof Model>(modelClass: MC, plugins: Plugin[]): MC;
   }
 
   interface Aliasable {
@@ -121,8 +123,8 @@ declare namespace Objection {
   }
 
   type Identity<T> = (value: T) => T;
-  type AnyQueryBuilder = QueryBuilder<any, any>;
-  type AnyModelClass = ModelClass<any>;
+  type AnyQueryBuilder = QueryBuilder<any>;
+  type AnyModelClass = typeof Model;
   type Modifier<QB extends AnyQueryBuilder = AnyQueryBuilder> =
     | ((qb: QB) => void)
     | string
@@ -192,8 +194,8 @@ declare namespace Objection {
   /**
    * Extracts the property names of the query builder's model class.
    */
-  type ModelProps<QB extends AnyQueryBuilder> = Exclude<
-    NonFunctionPropertyNames<ModelType<QB>>,
+  type ModelProps<QB extends AnyQueryBuilder, M extends ModelType<QB> = ModelType<QB>> = Exclude<
+    NonFunctionPropertyNames<M>,
     'QueryBuilderType'
   >;
 
@@ -218,89 +220,94 @@ declare namespace Objection {
   type PageQueryBuilder<QB extends AnyQueryBuilder> = QB['PageQueryBuilderType'];
 
   interface ForClassMethod {
-    <M extends Model>(modelClass: ModelClass<M>): M['QueryBuilderType'];
+    <M extends typeof Model>(modelClass: M): InstanceType<M>['QueryBuilderType'];
   }
 
   type Selection<QB extends AnyQueryBuilder> = ColumnRef | AnyQueryBuilder | CallbackVoid<QB>;
 
-  interface SelectMethod<QB extends AnyQueryBuilder> {
-    <AQB extends AnyQueryBuilder>(...columns: Selection<AQB>[]): QB;
-    <AQB extends AnyQueryBuilder>(columns: Selection<AQB>[]): QB;
+  interface SelectMethod {
+    <QB extends AnyQueryBuilder, AQB extends AnyQueryBuilder>(this: QB, ...columns: Selection<AQB>[]): QB;
+    <QB extends AnyQueryBuilder, AQB extends AnyQueryBuilder>(this: QB, columns: Selection<AQB>[]): QB;
   }
 
-  interface FromMethod<QB extends AnyQueryBuilder> {
-    (table: string): QB;
-    (cb: CallbackVoid<QB>): QB;
-    (raw: Raw): QB;
-    <QBA extends AnyQueryBuilder>(qb: QBA): QB;
+  interface FromMethod {
+    <QB extends AnyQueryBuilder>(this: QB, table: string): QB;
+    <QB extends AnyQueryBuilder>(this: QB, cb: CallbackVoid<QB>): QB;
+    <QB extends AnyQueryBuilder>(this: QB, raw: Raw): QB;
+    <QB extends AnyQueryBuilder, QBA extends AnyQueryBuilder>(this: QB, qb: QBA): QB;
   }
 
-  interface WhereMethod<QB extends AnyQueryBuilder> {
+  type DeriveQBType<QB extends AnyQueryBuilder, Type extends QBType> =
+    Type extends 'Array' ? QB['ArrayQueryBuilderType'] :
+    Type extends 'Single' ? QB['SingleQueryBuilderType'] :
+    Type extends 'Number' ? QB['NumberQueryBuilderType'] :
+    Type extends 'Page' ? QB['PageQueryBuilderType'] :
+    never;
+
+  interface WhereMethod<Type extends QBType> {
     // These must come first so that we get autocomplete.
-    <QBP extends QB>(col: ModelProps<QBP>, op: Operator, value: Value): QB;
-    <QBP extends QB>(col: ModelProps<QBP>, value: Value): QB;
+    <QB extends AnyQueryBuilder, QBP extends QB>(this: QB, col: ModelProps<QBP>, op: Operator, value: Value): DeriveQBType<QB, Type>;
+    <QB extends AnyQueryBuilder, QBP extends QB>(this: QB, col: ModelProps<QBP>, value: Value): DeriveQBType<QB, Type>;
 
-    (col: ColumnRef, op: Operator, value: Value): QB;
-    (col: ColumnRef, value: Value): QB;
+    <QB extends AnyQueryBuilder>(this: QB, col: ColumnRef, op: Operator, value: Value): DeriveQBType<QB, Type>;
+    <QB extends AnyQueryBuilder>(this: QB, col: ColumnRef, value: Value): DeriveQBType<QB, Type>;
 
-    (condition: boolean): QB;
-    (cb: CallbackVoid<QB>): QB;
-    (raw: Raw): QB;
-    <QBA extends AnyQueryBuilder>(qb: QBA): QB;
+    <QB extends AnyQueryBuilder>(this: QB, condition: boolean): DeriveQBType<QB, Type>;
+    <QB extends AnyQueryBuilder>(this: QB, cb: CallbackVoid<QB>): DeriveQBType<QB, Type>;
+    <QB extends AnyQueryBuilder>(this: QB, raw: Raw): DeriveQBType<QB, Type>;
+    <QB extends AnyQueryBuilder, QBA extends AnyQueryBuilder>(this: QB, qb: QBA): DeriveQBType<QB, Type>;
 
-    (obj: PartialModelObject<ModelType<QB>>): QB;
+    <QB extends AnyQueryBuilder>(this: QB, obj: PartialModelObject<ModelType<QB>>): DeriveQBType<QB, Type>;
     // We must allow any keys in the object. The previous type
     // is kind of useless, but maybe one day vscode and other
     // tools can autocomplete using it.
-    (obj: object): QB;
+    <QB extends AnyQueryBuilder>(this: QB, obj: object): DeriveQBType<QB, Type>;
   }
 
-  interface WhereRawMethod<QB extends AnyQueryBuilder> extends RawInterface<QB> {}
-
-  interface WhereWrappedMethod<QB extends AnyQueryBuilder> {
-    (cb: CallbackVoid<QB>): QB;
+  interface WhereWrappedMethod {
+    <QB extends AnyQueryBuilder>(this: QB, cb: CallbackVoid<QB>): QB;
   }
 
-  interface WhereExistsMethod<QB extends AnyQueryBuilder> {
-    (cb: CallbackVoid<QB>): QB;
-    (raw: Raw): QB;
-    <QBA extends AnyQueryBuilder>(qb: QBA): QB;
+  interface WhereExistsMethod {
+    <QB extends AnyQueryBuilder>(this: QB, cb: CallbackVoid<QB>): QB;
+    <QB extends AnyQueryBuilder>(this: QB, raw: Raw): QB;
+    <QB extends AnyQueryBuilder, QBA extends AnyQueryBuilder>(this: QB, qb: QBA): QB;
   }
 
-  interface WhereInMethod<QB extends AnyQueryBuilder> {
+  interface WhereInMethod {
     // These must come first so that we get autocomplete.
-    <QBP extends QB>(col: ModelProps<QBP>, value: Value): QB;
-    <QBP extends QB>(col: ModelProps<QBP>, cb: CallbackVoid<QB>): QB;
-    <QBP extends QB>(col: ModelProps<QBP>, qb: AnyQueryBuilder): QB;
+    <QB extends AnyQueryBuilder, QBP extends QB>(this: QB, col: ModelProps<QBP>, value: Value): QB;
+    <QB extends AnyQueryBuilder, QBP extends QB>(this: QB, col: ModelProps<QBP>, cb: CallbackVoid<QB>): QB;
+    <QB extends AnyQueryBuilder, QBP extends QB>(this: QB, col: ModelProps<QBP>, qb: AnyQueryBuilder): QB;
 
-    (col: ColumnRef | ColumnRef[], value: Value[]): QB;
-    (col: ColumnRef | ColumnRef[], cb: CallbackVoid<QB>): QB;
-    (col: ColumnRef | ColumnRef[], qb: AnyQueryBuilder): QB;
+    <QB extends AnyQueryBuilder>(this: QB, col: ColumnRef | ColumnRef[], value: Value[]): QB;
+    <QB extends AnyQueryBuilder>(this: QB, col: ColumnRef | ColumnRef[], cb: CallbackVoid<QB>): QB;
+    <QB extends AnyQueryBuilder>(this: QB, col: ColumnRef | ColumnRef[], qb: AnyQueryBuilder): QB;
   }
 
   type QBOrCallback<QB extends AnyQueryBuilder> = AnyQueryBuilder | CallbackVoid<QB>;
 
-  interface SetOperations<QB extends AnyQueryBuilder> extends BaseSetOperations<QB> {
-    (...callbacksOrBuilders: QBOrCallback<QB>[]): QB;
+  interface SetOperations extends BaseSetOperations {
+    <QB extends AnyQueryBuilder>(this: QB, ...callbacksOrBuilders: QBOrCallback<QB>[]): QB;
   }
 
-  interface BaseSetOperations<QB extends AnyQueryBuilder> {
-    (callbackOrBuilder: QBOrCallback<QB>, wrap?: boolean): QB;
-    (callbacksOrBuilders: QBOrCallback<QB>[], wrap?: boolean): QB;
+  interface BaseSetOperations {
+    <QB extends AnyQueryBuilder>(this: QB, callbackOrBuilder: QBOrCallback<QB>, wrap?: boolean): QB;
+    <QB extends AnyQueryBuilder>(this: QB, callbacksOrBuilders: QBOrCallback<QB>[], wrap?: boolean): QB;
   }
 
-  interface UnionMethod<QB extends AnyQueryBuilder> extends BaseSetOperations<QB> {
-    (arg1: QBOrCallback<QB>, wrap?: boolean): QB;
-    (arg1: QBOrCallback<QB>, arg2: QBOrCallback<QB>, wrap?: boolean): QB;
-    (arg1: QBOrCallback<QB>, arg2: QBOrCallback<QB>, arg3: QBOrCallback<QB>, wrap?: boolean): QB;
-    (
+  interface UnionMethod extends BaseSetOperations {
+    <QB extends AnyQueryBuilder>(this: QB, arg1: QBOrCallback<QB>, wrap?: boolean): QB;
+    <QB extends AnyQueryBuilder>(this: QB, arg1: QBOrCallback<QB>, arg2: QBOrCallback<QB>, wrap?: boolean): QB;
+    <QB extends AnyQueryBuilder>(this: QB, arg1: QBOrCallback<QB>, arg2: QBOrCallback<QB>, arg3: QBOrCallback<QB>, wrap?: boolean): QB;
+    <QB extends AnyQueryBuilder>(this: QB, 
       arg1: QBOrCallback<QB>,
       arg2: QBOrCallback<QB>,
       arg3: QBOrCallback<QB>,
       arg4: QBOrCallback<QB>,
       wrap?: boolean
     ): QB;
-    (
+    <QB extends AnyQueryBuilder>(this: QB, 
       arg1: QBOrCallback<QB>,
       arg2: QBOrCallback<QB>,
       arg3: QBOrCallback<QB>,
@@ -308,7 +315,7 @@ declare namespace Objection {
       arg5: QBOrCallback<QB>,
       wrap?: boolean
     ): QB;
-    (
+    <QB extends AnyQueryBuilder>(this: QB, 
       arg1: QBOrCallback<QB>,
       arg2: QBOrCallback<QB>,
       arg3: QBOrCallback<QB>,
@@ -317,7 +324,7 @@ declare namespace Objection {
       arg6: QBOrCallback<QB>,
       wrap?: boolean
     ): QB;
-    (
+    <QB extends AnyQueryBuilder>(this: QB, 
       arg1: QBOrCallback<QB>,
       arg2: QBOrCallback<QB>,
       arg3: QBOrCallback<QB>,
@@ -334,110 +341,100 @@ declare namespace Objection {
     aliases?: Record<string, string>;
   }
 
-  interface JoinRelationMethod<QB extends AnyQueryBuilder> {
-    (expr: RelationExpression<ModelType<QB>>, opt?: JoinRelationOptions): QB;
+  interface JoinRelationMethod {
+    <QB extends AnyQueryBuilder, M extends ModelType<QB>>(this: QB, expr: RelationExpression<M>, opt?: JoinRelationOptions): QB;
   }
 
-  interface JoinMethod<QB extends AnyQueryBuilder> {
-    (table: TableRef, leftCol: ColumnRef, op: Operator, rightCol: ColumnRef): QB;
-    (table: TableRef, leftCol: ColumnRef, rightCol: ColumnRef): QB;
-    (table: TableRef, cb: CallbackVoid<knex.JoinClause>): QB;
-    (table: TableRef, raw: Raw): QB;
-    (raw: Raw): QB;
+  interface JoinMethod {
+    <QB extends AnyQueryBuilder>(this: QB, table: TableRef, leftCol: ColumnRef, op: Operator, rightCol: ColumnRef): QB;
+    <QB extends AnyQueryBuilder>(this: QB, table: TableRef, leftCol: ColumnRef, rightCol: ColumnRef): QB;
+    <QB extends AnyQueryBuilder>(this: QB, table: TableRef, cb: CallbackVoid<knex.JoinClause>): QB;
+    <QB extends AnyQueryBuilder>(this: QB, table: TableRef, raw: Raw): QB;
+    <QB extends AnyQueryBuilder>(this: QB, raw: Raw): QB;
   }
 
-  interface JoinRawMethod<QB extends AnyQueryBuilder> extends RawInterface<QB> {}
-
-  interface IncrementDecrementMethod<QB extends AnyQueryBuilder> {
-    (column: string, amount?: number): QB;
+  interface IncrementDecrementMethod {
+    <QB extends AnyQueryBuilder>(this: QB, column: string, amount?: number): QB;
   }
 
-  interface OrderByMethod<QB extends AnyQueryBuilder> {
-    (column: ColumnRef, order?: OrderByDirection): QB;
-    (columns: ({ column: ColumnRef; order?: OrderByDirection } | ColumnRef)[]): QB;
+  interface OrderByMethod {
+    <QB extends AnyQueryBuilder>(this: QB, column: ColumnRef, order?: OrderByDirection): QB;
+    <QB extends AnyQueryBuilder>(this: QB, columns: ({ column: ColumnRef; order?: OrderByDirection } | ColumnRef)[]): QB;
   }
 
-  interface OrderByRawMethod<QB extends AnyQueryBuilder> extends RawInterface<QB> {}
-
-  interface FindByIdMethod<QB extends AnyQueryBuilder> {
-    (id: MaybeCompositeId): SingleQueryBuilder<QB>;
+  interface FindByIdMethod {
+    <QB extends AnyQueryBuilder>(this: QB, id: MaybeCompositeId): SingleQueryBuilder<QB>;
   }
 
-  interface FindByIdsMethod<QB extends AnyQueryBuilder> {
-    (ids: MaybeCompositeId[]): QB;
+  interface FindByIdsMethod {
+    <QB extends AnyQueryBuilder>(this: QB, ids: MaybeCompositeId[]): QB;
   }
 
-  interface FindOneMethod<QB extends AnyQueryBuilder> extends WhereMethod<SingleQueryBuilder<QB>> {}
-
-  interface FirstMethod<QB extends AnyQueryBuilder> {
+  interface FirstMethod {
     <QB extends AnyQueryBuilder>(this: QB): QB extends ArrayQueryBuilder<QB>
       ? SingleQueryBuilder<QB>
       : QB;
   }
 
-  interface ExecuteMethod<R> {
-    (): Promise<R>;
-  }
-
   interface CastToMethod {
-    <M extends Model>(modelClass: ModelClass<M>): M['QueryBuilderType'];
+    <M extends typeof Model>(modelClass: M): InstanceType<M>['QueryBuilderType'];
   }
 
-  interface UpdateMethod<QB extends AnyQueryBuilder> {
-    (update: PartialModelObject<ModelType<QB>>): NumberQueryBuilder<QB>;
+  interface UpdateMethod {
+    <QB extends AnyQueryBuilder, M extends ModelType<QB>>(this: QB, update: PartialModelObject<M>): NumberQueryBuilder<QB>;
   }
 
-  interface UpdateAndFetchMethod<QB extends AnyQueryBuilder> {
-    (update: PartialModelObject<ModelType<QB>>): SingleQueryBuilder<QB>;
+  interface UpdateAndFetchMethod {
+    <QB extends AnyQueryBuilder, M extends ModelType<QB>>(this: QB, update: PartialModelObject<M>): SingleQueryBuilder<QB>;
   }
 
-  interface UpdateAndFetchByIdMethod<QB extends AnyQueryBuilder> {
-    (id: MaybeCompositeId, update: PartialModelObject<ModelType<QB>>): SingleQueryBuilder<QB>;
+  interface UpdateAndFetchByIdMethod {
+    <QB extends AnyQueryBuilder, M extends ModelType<QB>>(this: QB, id: MaybeCompositeId, update: PartialModelObject<M>): SingleQueryBuilder<QB>;
   }
 
-  interface DeleteMethod<QB extends AnyQueryBuilder> {
-    (): NumberQueryBuilder<QB>;
+  interface DeleteMethod {
+    <QB extends AnyQueryBuilder>(this: QB): NumberQueryBuilder<QB>;
   }
 
-  interface DeleteByIdMethod<QB extends AnyQueryBuilder> {
-    (id: MaybeCompositeId): NumberQueryBuilder<QB>;
+  interface DeleteByIdMethod {
+    <QB extends AnyQueryBuilder>(this: QB, id: MaybeCompositeId): NumberQueryBuilder<QB>;
   }
 
-  interface InsertMethod<QB extends AnyQueryBuilder> {
-    (insert: PartialModelObject<ModelType<QB>>): SingleQueryBuilder<QB>;
-    (insert: PartialModelObject<ModelType<QB>>[]): ArrayQueryBuilder<QB>;
+  interface InsertMethod {
+    <QB extends AnyQueryBuilder, M extends ModelType<QB>>(this: QB, insert: PartialModelObject<M>): SingleQueryBuilder<QB>;
+    <QB extends AnyQueryBuilder, M extends ModelType<QB>>(this: QB, insert: PartialModelObject<M>[]): ArrayQueryBuilder<QB>;
   }
 
-  interface EagerMethod<QB extends AnyQueryBuilder> {
-    (expr: RelationExpression<ModelType<QB>>, modifiers?: Modifiers): QB;
+  interface EagerMethod {
+    <QB extends AnyQueryBuilder, M extends ModelType<QB>>(this: QB, expr: RelationExpression<M>, modifiers?: Modifiers): QB;
   }
 
-  interface AllowGraphMethod<QB extends AnyQueryBuilder> {
-    (expr: RelationExpression<ModelType<QB>>): QB;
+  interface AllowGraphMethod {
+    <QB extends AnyQueryBuilder, M extends ModelType<QB>>(this: QB, expr: RelationExpression<M>): QB;
   }
 
-  interface IdentityMethod<QB extends AnyQueryBuilder> {
-    (): QB;
+  interface IdentityMethod {
+    <QB extends AnyQueryBuilder>(this: QB): QB;
   }
 
-  interface OneArgMethod<T, QB extends AnyQueryBuilder> {
-    (arg: T): QB;
+  interface OneArgMethod<T> {
+    <QB extends AnyQueryBuilder>(this: QB, arg: T): QB;
   }
 
   interface StringReturningMethod {
-    (): string;
+    <QB extends AnyQueryBuilder>(this: QB): string;
   }
 
   interface BooleanReturningMethod {
-    (): boolean;
+    <QB extends AnyQueryBuilder>(this: QB): boolean;
   }
 
   interface TableRefForMethod {
-    (modelClass: typeof Model): string;
+    <QB extends AnyQueryBuilder>(this: QB, modelClass: typeof Model): string;
   }
 
   interface ModelClassMethod {
-    (): typeof Model;
+    <QB extends AnyQueryBuilder, M extends ModelType<QB>>(this: QB): M;
   }
 
   interface ReturningMethod {
@@ -455,49 +452,49 @@ declare namespace Objection {
     results: M[];
   }
 
-  interface PageMethod<QB extends AnyQueryBuilder> {
-    (page: number, pageSize: number): PageQueryBuilder<QB>;
+  interface PageMethod {
+    <QB extends AnyQueryBuilder>(this: QB, page: number, pageSize: number): PageQueryBuilder<QB>;
   }
 
-  interface RangeMethod<QB extends AnyQueryBuilder> {
-    (): PageQueryBuilder<QB>;
-    (start: number, end: number): PageQueryBuilder<QB>;
+  interface RangeMethod {
+    <QB extends AnyQueryBuilder>(this: QB): PageQueryBuilder<QB>;
+    <QB extends AnyQueryBuilder>(this: QB, start: number, end: number): PageQueryBuilder<QB>;
   }
 
-  interface RunBeforeCallback<QB extends AnyQueryBuilder> {
-    (this: QB, result: any, query: QB): any;
+  interface RunBeforeCallback {
+    <QB extends AnyQueryBuilder>(this: QB, result: any, query: QB): any;
   }
 
-  interface RunBeforeMethod<QB extends AnyQueryBuilder> {
-    (cb: RunBeforeCallback<QB>): QB;
+  interface RunBeforeMethod {
+    <QB extends AnyQueryBuilder>(this: QB, cb: RunBeforeCallback): QB;
   }
 
-  interface RunAfterCallback<QB extends AnyQueryBuilder> {
-    (this: QB, result: ResultType<QB>, query: QB): any;
+  interface RunAfterCallback {
+    <QB extends AnyQueryBuilder>(this: QB, result: ResultType<QB>, query: QB): any;
   }
 
-  interface RunAfterMethod<QB extends AnyQueryBuilder> {
-    (cb: RunAfterCallback<QB>): QB;
+  interface RunAfterMethod {
+    <QB extends AnyQueryBuilder>(this: QB, cb: RunAfterCallback): QB;
   }
 
-  interface OnBuildMethod<QB extends AnyQueryBuilder> {
-    (cb: CallbackVoid<QB>): QB;
+  interface OnBuildMethod {
+    <QB extends AnyQueryBuilder>(this: QB, cb: CallbackVoid<QB>): QB;
   }
 
-  interface OnBuildKnexCallback<QB extends AnyQueryBuilder> {
-    (this: QB, knexQuery: knex.QueryBuilder, query: QB): void;
+  interface OnBuildKnexCallback {
+    <QB extends AnyQueryBuilder>(this: QB, knexQuery: knex.QueryBuilder, query: QB): void;
   }
 
-  interface OnBuildKnexMethod<QB extends AnyQueryBuilder> {
-    (cb: OnBuildKnexCallback<QB>): QB;
+  interface OnBuildKnexMethod {
+    <QB extends AnyQueryBuilder>(this: QB, cb: OnBuildKnexCallback): QB;
   }
 
-  interface OnErrorCallback<QB extends AnyQueryBuilder> {
-    (this: QB, error: Error, query: QB): any;
+  interface OnErrorCallback {
+    <QB extends AnyQueryBuilder>(this: QB, error: Error, query: QB): any;
   }
 
-  interface OnErrorMethod<QB extends AnyQueryBuilder> {
-    (cb: OnErrorCallback<QB>): QB;
+  interface OnErrorMethod {
+    <QB extends AnyQueryBuilder>(this: QB, cb: OnErrorCallback): QB;
   }
 
   export interface InsertGraphOptions {
@@ -505,15 +502,15 @@ declare namespace Objection {
   }
 
   interface InsertGraphMethod {
-    <QB extends AnyQueryBuilder>(
+    <QB extends AnyQueryBuilder, M extends ModelType<QB>>(
       this: QB,
-      graph: PartialModelGraph<ModelType<QB>>,
+      graph: PartialModelGraph<M>,
       options?: InsertGraphOptions
     ): SingleQueryBuilder<QB>;
 
-    <QB extends AnyQueryBuilder>(
+    <QB extends AnyQueryBuilder, M extends ModelType<QB>>(
       this: QB,
-      graph: PartialModelGraph<ModelType<QB>>[],
+      graph: PartialModelGraph<M>[],
       options?: InsertGraphOptions
     ): ArrayQueryBuilder<QB>;
   }
@@ -531,23 +528,23 @@ declare namespace Objection {
   }
 
   interface UpsertGraphMethod {
-    <QB extends AnyQueryBuilder>(
+    <QB extends AnyQueryBuilder, M extends ModelType<QB>>(
       this: QB,
-      graph: PartialModelGraph<ModelType<QB>>,
+      graph: PartialModelGraph<M>,
       options?: UpsertGraphOptions
     ): SingleQueryBuilder<QB>;
 
-    <QB extends AnyQueryBuilder>(
+    <QB extends AnyQueryBuilder, M extends ModelType<QB>>(
       this: QB,
-      graph: PartialModelGraph<ModelType<QB>>[],
+      graph: PartialModelGraph<M>[],
       options?: UpsertGraphOptions
     ): ArrayQueryBuilder<QB>;
   }
 
   export interface EagerAlgorithm {}
 
-  interface EagerAlgorithmMethod<QB extends AnyQueryBuilder> {
-    (algorithm: EagerAlgorithm): QB;
+  interface EagerAlgorithmMethod {
+    <QB extends AnyQueryBuilder>(this: QB, algorithm: EagerAlgorithm): QB;
   }
 
   export interface EagerOptions {
@@ -557,17 +554,17 @@ declare namespace Objection {
     joinOperation: string;
   }
 
-  interface EagerOptionsMethod<QB extends AnyQueryBuilder> {
-    (options: EagerOptions): QB;
+  interface EagerOptionsMethod {
+    <QB extends AnyQueryBuilder>(this: QB, options: EagerOptions): QB;
   }
 
-  interface ModifyEagerMethod<QB extends AnyQueryBuilder> {
-    <M extends Model>(expr: RelationExpression<ModelType<QB>>, modifier: Modifier<M['QueryBuilderType']>): QB;
+  interface ModifyEagerMethod {
+    <M extends ModelType<QB>, QB extends AnyQueryBuilder>(this: QB, expr: RelationExpression<M>, modifier: Modifier<M['QueryBuilderType']>): QB;
   }
 
-  interface ContextMethod<QB extends AnyQueryBuilder> {
-    (context: object): QB;
-    (): QueryContext;
+  interface ContextMethod {
+    <QB extends AnyQueryBuilder>(this: QB, context: object): QB;
+    <QB extends AnyQueryBuilder>(this: QB): QueryContext;
   }
 
   export interface Pojo {
@@ -577,131 +574,130 @@ declare namespace Objection {
   export class QueryBuilder<M extends Model, R = M[]> extends Promise<R> {
     static forClass: ForClassMethod;
 
-    select: SelectMethod<this>;
-    columns: SelectMethod<this>;
-    column: SelectMethod<this>;
-    distinct: SelectMethod<this>;
+    select: SelectMethod;
+    columns: SelectMethod;
+    column: SelectMethod;
+    distinct: SelectMethod;
 
-    from: FromMethod<this>;
-    table: FromMethod<this>;
-    into: FromMethod<this>;
+    from: FromMethod;
+    table: FromMethod;
+    into: FromMethod;
 
-    where: WhereMethod<this>;
-    andWhere: WhereMethod<this>;
-    orWhere: WhereMethod<this>;
-    whereNot: WhereMethod<this>;
-    andWhereNot: WhereMethod<this>;
-    orWhereNot: WhereMethod<this>;
+    where: WhereMethod<'Array'>;
+    andWhere: WhereMethod<'Array'>;
+    orWhere: WhereMethod<'Array'>;
+    whereNot: WhereMethod<'Array'>;
+    andWhereNot: WhereMethod<'Array'>;
+    orWhereNot: WhereMethod<'Array'>;
 
-    whereRaw: WhereRawMethod<this>;
-    orWhereRaw: WhereRawMethod<this>;
-    andWhereRaw: WhereRawMethod<this>;
+    whereRaw: RawInterface<this>;
+    orWhereRaw: RawInterface<this>;
+    andWhereRaw: RawInterface<this>;
 
-    whereWrapped: WhereWrappedMethod<this>;
-    havingWrapped: WhereWrappedMethod<this>;
+    whereWrapped: WhereWrappedMethod;
+    havingWrapped: WhereWrappedMethod;
 
-    whereExists: WhereExistsMethod<this>;
-    orWhereExists: WhereExistsMethod<this>;
-    whereNotExists: WhereExistsMethod<this>;
-    orWhereNotExists: WhereExistsMethod<this>;
+    whereExists: WhereExistsMethod;
+    orWhereExists: WhereExistsMethod;
+    whereNotExists: WhereExistsMethod;
+    orWhereNotExists: WhereExistsMethod;
 
-    whereIn: WhereInMethod<this>;
-    orWhereIn: WhereInMethod<this>;
-    whereNotIn: WhereInMethod<this>;
-    orWhereNotIn: WhereInMethod<this>;
+    whereIn: WhereInMethod;
+    orWhereIn: WhereInMethod;
+    whereNotIn: WhereInMethod;
+    orWhereNotIn: WhereInMethod;
 
-    union: UnionMethod<this>;
-    unionAll: UnionMethod<this>;
+    union: UnionMethod;
+    unionAll: UnionMethod;
 
-    joinRelation: JoinRelationMethod<this>;
-    innerJoinRelation: JoinRelationMethod<this>;
-    outerJoinRelation: JoinRelationMethod<this>;
-    leftJoinRelation: JoinRelationMethod<this>;
-    leftOuterJoinRelation: JoinRelationMethod<this>;
-    rightJoinRelation: JoinRelationMethod<this>;
-    rightOuterJoinRelation: JoinRelationMethod<this>;
-    fullOuterJoinRelation: JoinRelationMethod<this>;
+    joinRelation: JoinRelationMethod;
+    innerJoinRelation: JoinRelationMethod;
+    outerJoinRelation: JoinRelationMethod;
+    leftJoinRelation: JoinRelationMethod;
+    leftOuterJoinRelation: JoinRelationMethod;
+    rightJoinRelation: JoinRelationMethod;
+    rightOuterJoinRelation: JoinRelationMethod;
+    fullOuterJoinRelation: JoinRelationMethod;
 
-    join: JoinMethod<this>;
-    joinRaw: JoinRawMethod<this>;
-    innerJoin: JoinMethod<this>;
-    leftJoin: JoinMethod<this>;
-    leftOuterJoin: JoinMethod<this>;
-    rightJoin: JoinMethod<this>;
-    rightOuterJoin: JoinMethod<this>;
-    outerJoin: JoinMethod<this>;
-    fullOuterJoin: JoinMethod<this>;
-    crossJoin: JoinMethod<this>;
+    join: JoinMethod;
+    joinRaw: RawInterface<this>;
+    innerJoin: JoinMethod;
+    leftJoin: JoinMethod;
+    leftOuterJoin: JoinMethod;
+    rightJoin: JoinMethod;
+    rightOuterJoin: JoinMethod;
+    outerJoin: JoinMethod;
+    fullOuterJoin: JoinMethod;
+    crossJoin: JoinMethod;
 
-    increment: IncrementDecrementMethod<this>;
-    decrement: IncrementDecrementMethod<this>;
+    increment: IncrementDecrementMethod;
+    decrement: IncrementDecrementMethod;
 
-    findById: FindByIdMethod<this>;
-    findByIds: FindByIdsMethod<this>;
-    findOne: FindOneMethod<this>;
+    findById: FindByIdMethod;
+    findByIds: FindByIdsMethod;
+    findOne: WhereMethod<'Single'>;
 
-    first: FirstMethod<this>;
+    first: FirstMethod;
 
-    orderBy: OrderByMethod<this>;
-    orderByRaw: OrderByRawMethod<this>;
+    orderBy: OrderByMethod;
+    orderByRaw: RawInterface<this>;
 
-    execute: ExecuteMethod<R>;
     castTo: CastToMethod;
 
-    update: UpdateMethod<this>;
-    updateAndFetch: UpdateAndFetchMethod<this>;
-    updateAndFetchById: UpdateAndFetchByIdMethod<this>;
+    update: UpdateMethod;
+    updateAndFetch: UpdateAndFetchMethod;
+    updateAndFetchById: UpdateAndFetchByIdMethod;
 
-    patch: UpdateMethod<this>;
-    patchAndFetch: UpdateAndFetchMethod<this>;
-    patchAndFetchById: UpdateAndFetchByIdMethod<this>;
+    patch: UpdateMethod;
+    patchAndFetch: UpdateAndFetchMethod;
+    patchAndFetchById: UpdateAndFetchByIdMethod;
 
-    del: DeleteMethod<this>;
-    delete: DeleteMethod<this>;
-    deleteById: DeleteByIdMethod<this>;
+    del: DeleteMethod;
+    delete: DeleteMethod;
+    deleteById: DeleteByIdMethod;
 
-    insert: InsertMethod<this>;
-    insertAndFetch: InsertMethod<this>;
+    insert: InsertMethod;
+    insertAndFetch: InsertMethod;
 
-    eager: EagerMethod<this>;
-    mergeEager: EagerMethod<this>;
+    eager: EagerMethod;
+    mergeEager: EagerMethod;
 
-    joinEager: EagerMethod<this>;
-    mergeJoinEager: EagerMethod<this>;
+    joinEager: EagerMethod;
+    mergeJoinEager: EagerMethod;
 
-    naiveEager: EagerMethod<this>;
-    mergeNaiveEager: EagerMethod<this>;
+    naiveEager: EagerMethod;
+    mergeNaiveEager: EagerMethod;
 
-    allowEager: AllowGraphMethod<this>;
-    mergeAllowEager: AllowGraphMethod<this>;
+    allowEager: AllowGraphMethod;
+    mergeAllowEager: AllowGraphMethod;
 
-    allowInsert: AllowGraphMethod<this>;
-    allowUpsert: AllowGraphMethod<this>;
+    allowInsert: AllowGraphMethod;
+    allowUpsert: AllowGraphMethod;
 
-    throwIfNotFound: IdentityMethod<this>;
+    throwIfNotFound: IdentityMethod;
     returning: ReturningMethod;
-    forUpdate: IdentityMethod<this>;
-    skipUndefined: IdentityMethod<this>;
-    debug: IdentityMethod<this>;
-    as: OneArgMethod<string, this>;
-    alias: OneArgMethod<string, this>;
-    withSchema: OneArgMethod<string, this>;
+    forUpdate: IdentityMethod;
+    skipUndefined: IdentityMethod;
+    debug: IdentityMethod;
+    as: OneArgMethod<string>;
+    alias: OneArgMethod<string>;
+    withSchema: OneArgMethod<string>;
     modelClass: ModelClassMethod
     tableNameFor: TableRefForMethod;
     tableRefFor: TableRefForMethod;
     toSql: StringReturningMethod;
-    reject: OneArgMethod<any, this>;
-    resolve: OneArgMethod<any, this>;
+    reject: OneArgMethod<any>;
+    resolve: OneArgMethod<any>;
 
-    page: PageMethod<this>;
-    range: RangeMethod<this>;
+    page: PageMethod;
+    range: RangeMethod;
 
-    runBefore: RunBeforeMethod<this>;
-    runAfter: RunAfterMethod<this>;
+    runBefore: RunBeforeMethod;
+    runAfter: RunAfterMethod;
 
-    onBuild: OnBuildMethod<this>;
-    onBuildKnex: OnBuildKnexMethod<this>;
-    onError: OnErrorMethod<this>;
+    onBuild: OnBuildMethod;
+    onBuildKnex: OnBuildKnexMethod;
+    onError: OnErrorMethod;
 
     insertGraph: InsertGraphMethod;
     insertGraphAndFetch: InsertGraphMethod;
@@ -711,12 +707,12 @@ declare namespace Objection {
     upsertGraph: UpsertGraphMethod;
     upsertGraphAndFetch: UpsertGraphMethod;
 
-    eagerAlgorithm: EagerAlgorithmMethod<this>;
-    eagerOptions: EagerOptionsMethod<this>;
-    modifyEager: ModifyEagerMethod<this>;
+    eagerAlgorithm: EagerAlgorithmMethod;
+    eagerOptions: EagerOptionsMethod;
+    modifyEager: ModifyEagerMethod;
 
-    context: ContextMethod<this>;
-    mergeContext: ContextMethod<this>;
+    context: ContextMethod;
+    mergeContext: ContextMethod;
 
     isFind: BooleanReturningMethod;
     isInsert: BooleanReturningMethod;
@@ -731,6 +727,8 @@ declare namespace Objection {
     ModelType: M;
     ResultType: R;
 
+    execute: Promise<R>;
+
     ArrayQueryBuilderType: QueryBuilder<M, M[]>;
     SingleQueryBuilderType: QueryBuilder<M, M>;
     NumberQueryBuilderType: QueryBuilder<M, number>;
@@ -738,7 +736,7 @@ declare namespace Objection {
   }
 
   interface StaticQueryMethod {
-    <M extends Model>(this: ModelClass<M>, trxOrKnex?: Transaction | knex): M['QueryBuilderType'];
+    <M extends typeof Model>(this: M, trxOrKnex?: Transaction | knex): InstanceType<M>['QueryBuilderType'];
   }
 
   interface QueryMethod {
@@ -753,16 +751,17 @@ declare namespace Objection {
     ? (I extends Model ? I['QueryBuilderType'] : never)
     : never;
 
-  interface RelatedQueryMethod<M extends Model> {
-    <K extends keyof M>(relationName: K, trxOrKnex?: Transaction | knex): RelatedQueryBuilder<M[K]>;
-    <RM extends Model>(
+  interface RelatedQueryMethod {
+    <K extends keyof M, M extends Model>(this: M, relationName: K, trxOrKnex?: Transaction | knex): RelatedQueryBuilder<M[K]>;
+    <M extends Model>(
       relationName: string,
       trxOrKnex?: Transaction | knex
-    ): RM['QueryBuilderType'];
+    ): M['QueryBuilderType'];
   }
 
-  interface LoadRelatedMethod<M extends Model> {
-    (
+  interface LoadRelatedMethod {
+    <M extends Model>(
+      this: M,
       expression: RelationExpression<M>,
       modifiers?: Modifiers<M['QueryBuilderType']>,
       trxOrKnex?: Transaction | knex
@@ -770,16 +769,16 @@ declare namespace Objection {
   }
 
   interface StaticLoadRelatedMethod {
-    <M extends Model>(
-      this: ModelClass<M>,
+    <SM extends typeof Model, M extends InstanceType<SM>>(
+      this: SM,
       modelOrObject: PartialModelObject<M>,
       expression: RelationExpression<M>,
       modifiers?: Modifiers<M['QueryBuilderType']>,
       trxOrKnex?: Transaction | knex
     ): SingleQueryBuilder<M['QueryBuilderType']>;
 
-    <M extends Model>(
-      this: ModelClass<M>,
+    <SM extends typeof Model, M extends InstanceType<SM>>(
+      this: SM,
       modelOrObject: PartialModelObject<M>[],
       expression: RelationExpression<M>,
       modifiers?: Modifiers<M['QueryBuilderType']>,
@@ -788,8 +787,8 @@ declare namespace Objection {
   }
 
   interface IdMethod {
-    (id: any): void;
-    (): any;
+    <M extends Model>(this: M, id: any): void;
+    <M extends Model>(this: M): any;
   }
 
   export interface Transaction extends knex {
@@ -802,17 +801,17 @@ declare namespace Objection {
     [relationName: string]: RelationMapping;
   }
 
-  type ModelClassFactory = () => AnyModelClass;
-  type ModelClassSpecifier = ModelClassFactory | AnyModelClass | string;
-  type RelationMappingHook = (model: Model, context: QueryContext) => Promise<void> | void;
+  type ModelClassFactory = () => typeof Model;
+  type ModelClassSpecifier = ModelClassFactory | typeof Model | string;
+  type RelationMappingHook = (model: typeof Model, context: QueryContext) => Promise<void> | void;
   type RelationMappingColumnRef = string | ReferenceBuilder | (string | ReferenceBuilder)[];
 
-  export interface RelationMapping<M extends Model = Model> {
+  export interface RelationMapping<M extends typeof Model = typeof Model> {
     relation: Relation;
     modelClass: ModelClassSpecifier;
     join: RelationJoin;
-    modify?: Modifier<M['QueryBuilderType']>;
-    filter?: Modifier<M['QueryBuilderType']>;
+    modify?: Modifier<InstanceType<M>['QueryBuilderType']>;
+    filter?: Modifier<InstanceType<M>['QueryBuilderType']>;
     beforeInsert?: RelationMappingHook;
   }
 
@@ -857,7 +856,7 @@ declare namespace Objection {
 
   export interface ValidatorArgs {
     ctx: ValidatorContext;
-    model: Model;
+    model: typeof Model;
     json: Pojo;
     options: ModelOptions;
   }
@@ -948,15 +947,11 @@ declare namespace Objection {
   }
 
   interface BindKnexMethod {
-    <M>(this: M, trxOrKnex: Transaction | knex): M;
+    <SM extends typeof Model>(this: SM, trxOrKnex: Transaction | knex): SM;
   }
 
   interface FromJsonMethod {
-    <M extends Model>(this: ModelClass<M>, json: object): M;
-  }
-
-  export interface ModelClass<M> {
-    new (): M;
+    <SM extends typeof Model>(this: SM, json: object): SM;
   }
 
   export class Model {
@@ -989,39 +984,44 @@ declare namespace Objection {
     static loadRelated: StaticLoadRelatedMethod;
     static raw: RawFunction;
 
+    static QueryBuilder: typeof QueryBuilder;
+
+    QueryBuilderType: QueryBuilder<this>;
+
+
     $query: QueryMethod;
-    $relatedQuery: RelatedQueryMethod<this>;
+    $relatedQuery: RelatedQueryMethod;
     $id: IdMethod;
-    $loadRelated: LoadRelatedMethod<this>;
+    $loadRelated: LoadRelatedMethod;
 
-    $formatDatabaseJson(json: Pojo): Pojo;
-    $parseDatabaseJson(json: Pojo): Pojo;
+    $formatDatabaseJson<M extends Model>(this: M, json: Pojo): Pojo;
+    $parseDatabaseJson<M extends Model>(this: M, json: Pojo): Pojo;
 
-    $formatJson(json: Pojo): Pojo;
-    $parseJson(json: Pojo, opt?: ModelOptions): Pojo;
+    $formatJson<M extends Model>(this: M, json: Pojo): Pojo;
+    $parseJson<M extends Model>(this: M, json: Pojo, opt?: ModelOptions): Pojo;
 
-    $toDatabaseJson(): Pojo;
-    $toJson(opt?: ToJsonOptions): Pojo;
-    toJSON(opt?: ToJsonOptions): Pojo;
+    $toDatabaseJson<M extends Model>(this: M): Pojo;
+    $toJson<M extends Model>(this: M, opt?: ToJsonOptions): Pojo;
+    toJSON<M extends Model>(this: M, opt?: ToJsonOptions): Pojo;
 
-    $setJson(json: object, opt?: ModelOptions): this;
-    $setDatabaseJson(json: object): this;
+    $setJson<M extends Model>(this: M, json: object, opt?: ModelOptions): M;
+    $setDatabaseJson<M extends Model>(this: M, json: object): M;
 
-    $setRelated<RM extends Model>(
+    $setRelated<M extends Model, RM extends typeof Model>(
+      this: M,
       relation: String | Relation,
       related: RM | RM[] | null | undefined
-    ): this;
+    ): M;
 
-    $appendRelated<RM extends Model>(
+    $appendRelated<M extends Model, RM extends typeof Model>(
+      this: M,
       relation: String | Relation,
       related: RM | RM[] | null | undefined
-    ): this;
+    ): M;
 
-    $set(obj: Pojo): this;
-    $omit(keys: string | string[] | { [key: string]: boolean }): this;
-    $pick(keys: string | string[] | { [key: string]: boolean }): this;
-    $clone(opt?: CloneOptions): this;
-
-    QueryBuilderType: QueryBuilder<this, this[]>;
+    $set<M extends Model>(this: M, obj: Pojo): M;
+    $omit<M extends Model>(this: M, keys: string | string[] | { [key: string]: boolean }): M;
+    $pick<M extends Model>(this: M, keys: string | string[] | { [key: string]: boolean }): M;
+    $clone<M extends Model>(this: M, opt?: CloneOptions): M;
   }
 }
